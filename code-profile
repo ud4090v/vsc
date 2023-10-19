@@ -1,0 +1,190 @@
+function Write-BranchName () {
+    try {
+        $branch = git rev-parse --abbrev-ref HEAD
+        if ($branch -eq "HEAD") {
+            # we're probably in detached HEAD state, so print the SHA
+            $branch = git rev-parse --short HEAD
+            Write-Host " ($branch)" -ForegroundColor "red"
+        }
+        else {
+            # we're on an actual branch, so print it
+            Write-Host " ($branch)" -ForegroundColor "blue"
+        }
+    } catch {
+        # we'll end up here if we're in a newly initiated git repo
+        Write-Host " (no branches yet)" -ForegroundColor "yellow"
+    }
+}
+function prompt {
+    $base = "PS "
+    $path = "$($executionContext.SessionState.Path.CurrentLocation)"
+    $userPrompt = "$('>' * ($nestedPromptLevel + 1)) "
+    Write-Host "`n$base" -NoNewline
+  
+    if (Test-Path .git) {
+        Write-Host $path -NoNewline -ForegroundColor "green"
+        Write-BranchName
+    }
+    else {
+        # we're not in a repo so don't bother displaying branch name/sha
+        Write-Host $path -ForegroundColor "green"
+    }
+    return $userPrompt
+}
+function changeValue {
+    param(
+        [String] $Lib, 
+        [String] $Name, 
+        [Int32] $State
+    )
+    $filePath = "C:\VSCode\$Name\WebContent\Component.js"
+    $file = Get-Content -ath $filePath
+    if($State) {
+        $find = "let local$Lib = false"
+        $replace = "let local$Lib = true"
+    } else {
+        $find = "let local$Lib = true"
+        $replace = "let local$Lib = false"
+    }
+    $newFile = $file -replace $find, $replace
+    $newFile | Set-Content -Path $filePath
+}
+
+function OMChange {
+    param(
+        [Int32] $State,
+        [String] $OrdNumArg,
+        [String] $RevNumArg
+    )
+    $modelFilePath = "C:\VSCode\mes-order-maintenance\WebContent\model\models.js"
+    $modelFile = Get-Content -Path $modelFilePath
+    if ($State) {
+        $ordNum = Read-Host "`nOrder Number "
+        $revNum = Read-Host "`nRev Number "
+        $findOrd = "InputLocalOrdNum"
+        $findRev = "InputLocalRevNum"
+        $replaceOrd = "$ordNum"
+        $replaceRev = "$revNum"
+        $newModelFile = $modelFile -replace $findOrd, $replaceOrd -replace $findRev, $replaceRev
+        $newModelFile | Set-Content -Path $modelFilePath
+        return $ordNum, $revNum
+    } else {
+        $findOrd = "$OrdNumArg"
+        $findRev = "$RevNumArg"
+        $replaceOrd = "InputLocalOrdNum"
+        $replaceRev = "InputLocalRevNum"
+        $newModelFile = $modelFile -replace $findOrd, $replaceOrd -replace $findRev, $replaceRev
+        $newModelFile | Set-Content -Path $modelFilePath
+    }
+}
+function nameBlock {
+    param(
+        [String[]] $ValidApps
+    )
+    
+    $nameInput = Read-Host " `nWhat app do you want to start?"
+    if ($nameInput -in $ValidApps) {
+        return $nameInput
+    } else {
+        Write-Host "--------`nYour input is not a valid app, try again"
+        nameBlock -ValidApps $ValidApps
+    }
+}
+function libsBlock {
+    param(
+        [String[]] $ValidLibs
+    )
+    $libsInput = Read-Host " `nWhat Library app(s) are you running locally?`nChoices are:`nCommon`nUi`nLibs (for both Common and Ui)`n"
+    if ($libsInput.ToUpper() -eq "NONE") {
+        return "SKIP"
+    } elseif ($libsInput -in $ValidLibs) {
+        $firstChar = $libsInput.Substring(0,1).ToUpper()
+        $formatStr = $firstChar + $libsInput.Substring(1)
+        Write-Host $formatStr
+        return $formatStr
+    } else {
+        Write-Host "--------`nYour input is not a valid library choice, try again"
+        libsBlock -ValidLibs $ValidLibs
+    }
+}
+function localApp {
+    $validApps = "mes-authoring", "mes-common", "mes-execution", "mes-order-maintenance", "mes-plan-import", "mes-search", "mes-smartcards", "mes-standard-text", "mes-ui", "mes-loli", "oms-barriers", "oms-dashboard"
+    $validLibs = "Libs", "Common", "Ui", "St", "None"
+    
+    $name = nameBlock -ValidApps $validApps
+    $state = 1
+    if ($name -eq "mes-order-maintenance") {
+        $ordAndRevNums = OMChange -State $state -OrdNum $ordNum -RevNum $revNum
+        $orderNum = $ordAndRevNums[0]
+        $revisonNum = $ordAndRevNums[1]
+    }
+    $lib = libsBlock -ValidLibs $validLibs
+
+    if ($lib -eq "Libs") {
+        Start-Process powershell '-noexit', "cd C:\VSCode\mes-common; npm run start"
+        Start-Process powershell '-noexit', "cd C:\VSCode\mes-ui; npm run start"
+    } elseif ($lib -eq "Common") {
+        Start-Process powershell '-noexit', "cd C:\VSCode\mes-common; npm run start"
+    } elseif ($lib -eq "Ui") {
+        Start-Process powershell '-noexit', "cd C:\VSCode\mes-ui; npm run start"
+    }
+    if ($lib -eq "SKIP") {
+        Write-Host "No Local Libs Running."
+        echo ------
+        $namePro = Start-Process powershell '-noexit', "cd C:\VSCode\$name; npm run start", -PassThru
+    } else {
+        Start-Process powershell "cd C:\VSCode\$name; changeValue -Lib $lib -Name $name -State $state; npm run start"
+        echo ------
+    }
+    Read-Host "!!DO NOT CLOSE THIS WINDOW!! `n Until you press 'ENTER' to RESET Component.js in $name"
+    $state = 0
+    changeValue -Lib $lib -Name $name -State $state
+    if ($name -eq "mes-order-maintenance") {
+        OMChange -State $state -OrdNum $orderNum -RevNum $revisonNum
+    }
+}
+function dev {
+    git checkout develop 
+    git pull origin develop
+}
+function delbranch {
+    function delBranchValid {
+        param(
+            [String] $cleanStr
+        )
+        $ans=Read-Host "delete $cleanStr branch? (yes or no)`n"
+                if ($ans[0] -eq "y") {
+                    return "1"
+                } elseif ($ans[0] -eq "n" ) {
+                    return "0"
+                } else {
+                    write-host "Invalid respone!`nTry again (Ctrl+C to quit)`n" -ForegroundColor "red"
+                    delBranchValid
+                }
+    }
+    function delbranchcaller {
+        dev
+        write-host "`nOn updated develop branch`nRunning deletion script`n"
+        $branches=git branch
+        $saveBranches=@("develop","pipeline","production")
+        foreach ($b in $branches) {
+            $cleanstr=$b.Substring(2)
+            if ($cleanstr -in $saveBranches) {
+                Write-Host "$cleanstr in protected branch list`n" -ForegroundColor "green"
+            } else {
+                $valid=delBranchValid -cleanStr $cleanstr
+                if ($valid -eq "1") {
+                    write-host "-----" -ForegroundColor "red"
+                    git branch -D $cleanstr 
+                    write-host "-----" -ForegroundColor "red"
+                } else {
+                    write-host "Skipping $cleanstr deletion`n" -ForegroundColor "green"
+                }
+            }
+        }
+        git gc --auto
+        write-host "Remaining local branches:" -ForegroundColor "magenta"
+        git branch
+    }
+    delbranchcaller
+}

@@ -31,6 +31,7 @@ function prompt {
     }
     return $userPrompt
 }
+
 function changeValue {
     param(
         [String] $Lib, 
@@ -38,7 +39,7 @@ function changeValue {
         [Int32] $State
     )
     $filePath = "C:\VSCode\$Name\WebContent\Component.js"
-    $file = Get-Content -ath $filePath
+    $file = Get-Content -Path $filePath
     if($State) {
         $find = "let local$Lib = false"
         $replace = "let local$Lib = true"
@@ -46,16 +47,17 @@ function changeValue {
         $find = "let local$Lib = true"
         $replace = "let local$Lib = false"
     }
+
     $newFile = $file -replace $find, $replace
     $newFile | Set-Content -Path $filePath
 }
-
 function OMChange {
     param(
         [Int32] $State,
         [String] $OrdNumArg,
         [String] $RevNumArg
     )
+
     $modelFilePath = "C:\VSCode\mes-order-maintenance\WebContent\model\models.js"
     $modelFile = Get-Content -Path $modelFilePath
     if ($State) {
@@ -76,51 +78,64 @@ function OMChange {
         $newModelFile = $modelFile -replace $findOrd, $replaceOrd -replace $findRev, $replaceRev
         $newModelFile | Set-Content -Path $modelFilePath
     }
+
 }
 function nameBlock {
     param(
-        [String[]] $ValidApps
+        [String[]] $ValidChoices,
+        [Int32] $AppOrLib
     )
-    
-    $nameInput = Read-Host " `nWhat app do you want to start?"
-    if ($nameInput -in $ValidApps) {
-        return $nameInput
+    if ($AppOrLib -eq 1) {
+        $nameInput = write-host " `nWhat app do you want to start?" -ForegroundColor "blue"
     } else {
-        Write-Host "--------`nYour input is not a valid app, try again"
-        nameBlock -ValidApps $ValidApps
+        $nameInput = write-host " `nWhat library do you want to start?" -ForegroundColor "blue"
     }
-}
-function libsBlock {
-    param(
-        [String[]] $ValidLibs
-    )
-    $libsInput = Read-Host " `nWhat Library app(s) are you running locally?`nChoices are:`nCommon`nUi`nLibs (for both Common and Ui)`n"
-    if ($libsInput.ToUpper() -eq "NONE") {
-        return "SKIP"
-    } elseif ($libsInput -in $ValidLibs) {
-        $firstChar = $libsInput.Substring(0,1).ToUpper()
-        $formatStr = $firstChar + $libsInput.Substring(1)
-        Write-Host $formatStr
-        return $formatStr
+    $selectList=@()
+    for($i=0; $i -lt $ValidChoices.count; $i++) {
+        $app=$ValidChoices[$i]
+        $num=$i+1
+        write-host "$num.$app"
+        $selectList+= "$num*", $app
+    }
+    $numInput=read-host "(select by number)`n"
+    if ("$numInput*" -notin $selectList) {
+        Write-Host "--------`nYour input is not a valid selection, try again" -ForegroundColor "red"
+        nameBlock -ValidChoices $ValidChoices
     } else {
-        Write-Host "--------`nYour input is not a valid library choice, try again"
-        libsBlock -ValidLibs $ValidLibs
+        $ret=$selectList[$selectList.IndexOf("$numInput*")+1]
+        write-host "You choose $ret.  Is this correct?" -ForegroundColor "yellow"
+        $check=read-host " "
+        if ($check[0] -eq "y") {
+            return $ret
+        } else {
+            nameBlock -ValidChoices $ValidChoices
+        }
     }
 }
 function localApp {
-    $validApps = "mes-authoring", "mes-common", "mes-execution", "mes-order-maintenance", "mes-plan-import", "mes-search", "mes-smartcards", "mes-standard-text", "mes-ui", "mes-loli", "oms-barriers", "oms-dashboard"
-    $validLibs = "Libs", "Common", "Ui", "St", "None"
+    $validLibs = "Both", "Common", "Ui", "None"
+    $validApps=@()
+    $app=read-host "What app are we working with?`n1.RF`n2.OMS`n" 
+    if ($app -eq "1") {
+        cd C:\VSCode\
+    } elseif ($app -eq "2") {
+        cd C:\VSCode\
+    }
+    $repos=ls
+    foreach ($repo in $repos) {
+        $validApps+=$repo
+    }
     
-    $name = nameBlock -ValidApps $validApps
+    $name = nameBlock -ValidChoices $validApps -AppOrLib 1
     $state = 1
     if ($name -eq "mes-order-maintenance") {
         $ordAndRevNums = OMChange -State $state -OrdNum $ordNum -RevNum $revNum
         $orderNum = $ordAndRevNums[0]
         $revisonNum = $ordAndRevNums[1]
     }
-    $lib = libsBlock -ValidLibs $validLibs
+    $lib = nameBlock -ValidChoices $validLibs -AppOrLib 0
 
-    if ($lib -eq "Libs") {
+    if ($lib -eq "Both") {
         Start-Process powershell '-noexit', "cd C:\VSCode\mes-common; npm run start"
         Start-Process powershell '-noexit', "cd C:\VSCode\mes-ui; npm run start"
     } elseif ($lib -eq "Common") {
@@ -128,21 +143,26 @@ function localApp {
     } elseif ($lib -eq "Ui") {
         Start-Process powershell '-noexit', "cd C:\VSCode\mes-ui; npm run start"
     }
-    if ($lib -eq "SKIP") {
-        Write-Host "No Local Libs Running."
+
+    if ($lib -eq "None") {
+        Write-Host "No Local Libs Running." -ForegroundColor "yellow"
         echo ------
         $namePro = Start-Process powershell '-noexit', "cd C:\VSCode\$name; npm run start", -PassThru
     } else {
         Start-Process powershell "cd C:\VSCode\$name; changeValue -Lib $lib -Name $name -State $state; npm run start"
         echo ------
     }
-    Read-Host "!!DO NOT CLOSE THIS WINDOW!! `n Until you press 'ENTER' to RESET Component.js in $name"
+
+    Write-Host "!!DO NOT CLOSE THIS WINDOW!!" -ForegroundColor "magenta" 
+    Read-Host "Until you press 'ENTER' to RESET Component.js in $name"
     $state = 0
     changeValue -Lib $lib -Name $name -State $state
     if ($name -eq "mes-order-maintenance") {
         OMChange -State $state -OrdNum $orderNum -RevNum $revisonNum
     }
 }
+
+
 function dev {
     git checkout develop 
     git pull origin develop
